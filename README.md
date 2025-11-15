@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>English Learning Adventure</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <script src="/_sdk/data_sdk.js"></script>
   <script src="/_sdk/element_sdk.js"></script>
   <style>
         body {
@@ -753,6 +752,7 @@
         }
     </style>
   <style>@view-transition { navigation: auto; }</style>
+  <script src="/_sdk/data_sdk.js" type="text/javascript"></script>
   <script src="https://cdn.tailwindcss.com" type="text/javascript"></script>
  </head>
  <body>
@@ -765,7 +765,7 @@
     <div class="daily-goal-text" id="daily-goal">
      Ежедневная цель: Изучить 5 новых слов
     </div>
-    <div class="save-info"><span>💾</span> <span>Прогресс сохраняется автоматически</span> <span id="save-indicator" style="display: none;">Сохранено</span>
+    <div class="save-info"><span>💾</span> <span>Прогресс сохраняется в браузере</span> <span id="save-indicator" style="display: none;">Сохранено</span>
     </div>
    </div>
    <div class="nav-tabs"><button class="nav-tab active" onclick="showSection('dashboard')">📊 Главная</button> <button class="nav-tab" onclick="showSection('categories')">📚 Категории</button> <button class="nav-tab" onclick="showSection('learn')">🎓 Изучение</button> <button class="nav-tab" onclick="showSection('quiz')">🎯 Викторина</button> <button class="nav-tab" onclick="showSection('sentences')">📝 Предложения</button> <button class="nav-tab" onclick="showSection('listening')">🎧 Аудирование</button> <button class="nav-tab" onclick="showSection('speaking')">🗣️ Говорение</button> <button class="nav-tab" onclick="showSection('favorites')">⭐ Избранное</button> <button class="nav-tab" onclick="showSection('study-plan')">📅 План обучения</button>
@@ -1043,7 +1043,6 @@
     </div>
    </div>
   </div>
-  <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <script>
         // Telegram Web App initialization
         let tg = window.Telegram?.WebApp;
@@ -1065,12 +1064,15 @@
             welcome_message: "Давайте изучать английский вместе!",
             daily_goal: "Ежедневная цель: Изучить 5 новых слов",
             background_color: "#667eea",
-            surface_color: "#ffffff",
-            text_color: "#2C3E50",
-            primary_action_color: "#4facfe",
-            secondary_action_color: "#667eea",
             font_family: "Comic Sans MS",
             font_size: 16
+        };
+
+        // LocalStorage keys
+        const STORAGE_KEYS = {
+            GAME_DATA: 'english_learning_game_data',
+            STUDY_PROGRESS: 'english_learning_study_progress',
+            USER_SETTINGS: 'english_learning_settings'
         };
 
         // Enhanced word database with categories and pronunciations
@@ -1528,18 +1530,6 @@
             }
         };
 
-        // Data SDK handler
-        const dataHandler = {
-            onDataChanged(data) {
-                gameData = data;
-                loadStudyProgress();
-                updateDashboard();
-                updateCategories();
-                updateFavorites();
-                updateStudyPlan();
-            }
-        };
-
         // Element SDK implementation
         async function onConfigChange(config) {
             const customFont = config.font_family || defaultConfig.font_family;
@@ -1602,15 +1592,35 @@
             ]);
         }
 
-        // Initialize SDKs
+        // LocalStorage functions
+        function saveToLocalStorage(key, data) {
+            try {
+                localStorage.setItem(key, JSON.stringify(data));
+                showSaveIndicator();
+            } catch (error) {
+                console.error('Error saving to localStorage:', error);
+            }
+        }
+
+        function loadFromLocalStorage(key, defaultValue = []) {
+            try {
+                const data = localStorage.getItem(key);
+                return data ? JSON.parse(data) : defaultValue;
+            } catch (error) {
+                console.error('Error loading from localStorage:', error);
+                return defaultValue;
+            }
+        }
+
+        // Initialize app
         async function initializeApp() {
             try {
-                if (window.dataSdk) {
-                    const initResult = await window.dataSdk.init(dataHandler);
-                    if (!initResult.isOk) {
-                        console.error("Failed to initialize data SDK");
-                    }
-                }
+                // Load data from localStorage
+                gameData = loadFromLocalStorage(STORAGE_KEYS.GAME_DATA, []);
+                const studyProgress = loadFromLocalStorage(STORAGE_KEYS.STUDY_PROGRESS, {});
+                
+                currentWeek = studyProgress.currentWeek || 1;
+                currentDay = studyProgress.currentDay || 1;
 
                 if (window.elementSdk) {
                     window.elementSdk.init({
@@ -1621,12 +1631,14 @@
                     });
                 }
 
+                updateDashboard();
                 updateCategories();
                 loadRandomLearnWord();
                 newSentenceExercise();
                 updateStudyPlan();
+                updateFavorites();
             } catch (error) {
-                console.error("Failed to initialize SDKs:", error);
+                console.error("Failed to initialize app:", error);
             }
         }
 
@@ -1655,8 +1667,8 @@
         function updateDashboard() {
             const totalWords = getAllWords().length;
             const learnedWords = new Set(gameData.map(item => item.word)).size;
-            const totalAttempts = gameData.reduce((sum, item) => sum + item.total_attempts, 0);
-            const correctAnswers = gameData.reduce((sum, item) => sum + item.correct_answers, 0);
+            const totalAttempts = gameData.reduce((sum, item) => sum + (item.total_attempts || 0), 0);
+            const correctAnswers = gameData.reduce((sum, item) => sum + (item.correct_answers || 0), 0);
             const accuracy = totalAttempts > 0 ? Math.round((correctAnswers / totalAttempts) * 100) : 0;
 
             document.getElementById('total-words').textContent = totalWords;
@@ -1725,7 +1737,7 @@
             displayLearnWord();
         }
 
-        async function displayLearnWord() {
+        function displayLearnWord() {
             if (!currentLearnWord) return;
 
             document.getElementById('learn-emoji').textContent = currentLearnWord.emoji;
@@ -1767,7 +1779,7 @@
             }
 
             // Автоматически отмечаем слово как просмотренное
-            await saveWordView(currentLearnWord.english);
+            saveWordView(currentLearnWord.english);
 
             // Update progress
             const allWords = getAllWords();
@@ -1778,10 +1790,10 @@
                 `${learnedWords} из ${allWords.length} слов изучено`;
         }
 
-        async function nextLearnWord() {
+        function nextLearnWord() {
             // Автоматически сохраняем прогресс изучения
             if (currentLearnWord) {
-                await saveWordProgress(currentLearnWord.english, true);
+                saveWordProgress(currentLearnWord.english, true);
             }
             
             if (selectedCategory) {
@@ -1800,41 +1812,30 @@
             window.speechSynthesis.speak(utterance);
         }
 
-        async function toggleFavorite() {
-            if (!currentLearnWord || !window.dataSdk) return;
+        function toggleFavorite() {
+            if (!currentLearnWord) return;
 
-            showLoading(true);
+            const existingRecord = gameData.find(item => item.word === currentLearnWord.english);
             
-            try {
-                const existingRecord = gameData.find(item => item.word === currentLearnWord.english);
+            if (existingRecord) {
+                existingRecord.is_favorite = !existingRecord.is_favorite;
+            } else {
+                const newRecord = {
+                    word: currentLearnWord.english,
+                    category: getCategoryForWord(currentLearnWord.english),
+                    correct_answers: 0,
+                    total_attempts: 0,
+                    learned_date: new Date().toISOString(),
+                    difficulty_level: 1,
+                    is_favorite: true,
+                    last_practiced: new Date().toISOString()
+                };
                 
-                if (existingRecord) {
-                    existingRecord.is_favorite = !existingRecord.is_favorite;
-                    await window.dataSdk.update(existingRecord);
-                } else {
-                    if (gameData.length >= 999) {
-                        showMessage("Достигнут лимит в 999 слов!");
-                        return;
-                    }
-                    
-                    const newRecord = {
-                        word: currentLearnWord.english,
-                        category: getCategoryForWord(currentLearnWord.english),
-                        correct_answers: 0,
-                        total_attempts: 0,
-                        learned_date: new Date().toISOString(),
-                        difficulty_level: 1,
-                        is_favorite: true,
-                        last_practiced: new Date().toISOString()
-                    };
-                    
-                    await window.dataSdk.create(newRecord);
-                }
-            } catch (error) {
-                console.error("Error toggling favorite:", error);
-            } finally {
-                showLoading(false);
+                gameData.push(newRecord);
             }
+            
+            saveToLocalStorage(STORAGE_KEYS.GAME_DATA, gameData);
+            updateFavorites();
         }
 
         // Quiz functions
@@ -1887,7 +1888,7 @@
             });
         }
 
-        async function checkQuizAnswer(selectedAnswer, button) {
+        function checkQuizAnswer(selectedAnswer, button) {
             quizTotal++;
             const isCorrect = selectedAnswer === currentQuizWord.russian;
             
@@ -1907,7 +1908,7 @@
             }
 
             // Save progress
-            await saveWordProgress(currentQuizWord.english, isCorrect);
+            saveWordProgress(currentQuizWord.english, isCorrect);
             
             // Disable all buttons
             const buttons = document.querySelectorAll('.quiz-option');
@@ -1999,12 +2000,12 @@
             updateSentenceDisplay();
         }
 
-        async function checkSentence() {
+        function checkSentence() {
             const isCorrect = JSON.stringify(userSentence) === JSON.stringify(currentSentenceWords);
             
             // Автоматически сохраняем прогресс для всех слов в предложении
             for (const word of currentSentenceWords) {
-                await saveWordProgress(word, isCorrect);
+                saveWordProgress(word, isCorrect);
             }
             
             if (isCorrect) {
@@ -2101,21 +2102,12 @@
             window.speechSynthesis.speak(utterance);
         }
 
-        async function removeFavorite(word) {
-            if (!window.dataSdk) return;
-
-            showLoading(true);
-            
-            try {
-                const record = gameData.find(item => item.word === word);
-                if (record) {
-                    record.is_favorite = false;
-                    await window.dataSdk.update(record);
-                }
-            } catch (error) {
-                console.error("Error removing favorite:", error);
-            } finally {
-                showLoading(false);
+        function removeFavorite(word) {
+            const record = gameData.find(item => item.word === word);
+            if (record) {
+                record.is_favorite = false;
+                saveToLocalStorage(STORAGE_KEYS.GAME_DATA, gameData);
+                updateFavorites();
             }
         }
 
@@ -2133,82 +2125,52 @@
             return 'general';
         }
 
-        async function saveWordView(word) {
-            if (!window.dataSdk) return;
+        function saveWordView(word) {
+            const existingRecord = gameData.find(item => item.word === word);
             
-            try {
-                const existingRecord = gameData.find(item => item.word === word);
+            if (!existingRecord) {
+                const newRecord = {
+                    word: word,
+                    category: getCategoryForWord(word),
+                    correct_answers: 0,
+                    total_attempts: 0,
+                    learned_date: new Date().toISOString(),
+                    difficulty_level: 1,
+                    is_favorite: false,
+                    last_practiced: new Date().toISOString()
+                };
                 
-                if (!existingRecord) {
-                    if (gameData.length >= 999) {
-                        return; // Тихо игнорируем, если лимит достигнут
-                    }
-                    
-                    const newRecord = {
-                        word: word,
-                        category: getCategoryForWord(word),
-                        correct_answers: 0,
-                        total_attempts: 0,
-                        learned_date: new Date().toISOString(),
-                        difficulty_level: 1,
-                        is_favorite: false,
-                        last_practiced: new Date().toISOString()
-                    };
-                    
-                    await window.dataSdk.create(newRecord);
-                    showSaveIndicator();
-                }
-            } catch (error) {
-                console.error("Error saving word view:", error);
+                gameData.push(newRecord);
+                saveToLocalStorage(STORAGE_KEYS.GAME_DATA, gameData);
             }
         }
 
-        async function saveWordProgress(word, isCorrect) {
-            if (!window.dataSdk) return;
-
-            showLoading(true);
+        function saveWordProgress(word, isCorrect) {
+            const existingRecord = gameData.find(item => item.word === word);
             
-            try {
-                const existingRecord = gameData.find(item => item.word === word);
-                
-                if (existingRecord) {
-                    existingRecord.total_attempts++;
-                    if (isCorrect) {
-                        existingRecord.correct_answers++;
-                    }
-                    existingRecord.last_practiced = new Date().toISOString();
-                    
-                    await window.dataSdk.update(existingRecord);
-                    showSaveIndicator();
-                } else {
-                    if (gameData.length >= 999) {
-                        showMessage("Достигнут лимит в 999 слов!");
-                        return;
-                    }
-                    
-                    const newRecord = {
-                        word: word,
-                        category: getCategoryForWord(word),
-                        correct_answers: isCorrect ? 1 : 0,
-                        total_attempts: 1,
-                        learned_date: new Date().toISOString(),
-                        difficulty_level: 1,
-                        is_favorite: false,
-                        last_practiced: new Date().toISOString()
-                    };
-                    
-                    await window.dataSdk.create(newRecord);
-                    showSaveIndicator();
+            if (existingRecord) {
+                existingRecord.total_attempts = (existingRecord.total_attempts || 0) + 1;
+                if (isCorrect) {
+                    existingRecord.correct_answers = (existingRecord.correct_answers || 0) + 1;
                 }
-            } catch (error) {
-                console.error("Error saving progress:", error);
-            } finally {
-                showLoading(false);
+                existingRecord.last_practiced = new Date().toISOString();
+            } else {
+                const newRecord = {
+                    word: word,
+                    category: getCategoryForWord(word),
+                    correct_answers: isCorrect ? 1 : 0,
+                    total_attempts: 1,
+                    learned_date: new Date().toISOString(),
+                    difficulty_level: 1,
+                    is_favorite: false,
+                    last_practiced: new Date().toISOString()
+                };
+                
+                gameData.push(newRecord);
             }
-        }
-
-        function showLoading(show) {
-            document.getElementById('loading').classList.toggle('hidden', !show);
+            
+            saveToLocalStorage(STORAGE_KEYS.GAME_DATA, gameData);
+            updateDashboard();
         }
 
         function showSaveIndicator() {
@@ -2353,7 +2315,7 @@
                 `День ${currentDay} из ${totalDays} (${Math.round(progress)}% завершено)`;
         }
 
-        async function selectDay(dayNumber) {
+        function selectDay(dayNumber) {
             const weekData = studyPlan[currentWeek];
             const task = weekData.tasks[dayNumber - 1];
             
@@ -2361,52 +2323,21 @@
             const totalDay = (currentWeek - 1) * 7 + dayNumber;
             if (totalDay >= currentDay) {
                 currentDay = totalDay + 1;
-                await saveStudyProgress();
+                saveStudyProgress();
                 updateStudyPlan();
                 
                 showMessage(`✅ День ${dayNumber} завершён: ${task}`);
             }
         }
 
-        async function saveStudyProgress() {
-            if (!window.dataSdk) return;
-
-            try {
-                const progressRecord = gameData.find(item => item.type === 'study_progress');
-                
-                if (progressRecord) {
-                    progressRecord.current_week = currentWeek;
-                    progressRecord.current_day = currentDay;
-                    progressRecord.last_updated = new Date().toISOString();
-                    await window.dataSdk.update(progressRecord);
-                } else {
-                    if (gameData.length >= 999) {
-                        return;
-                    }
-                    
-                    const newProgress = {
-                        type: 'study_progress',
-                        current_week: currentWeek,
-                        current_day: currentDay,
-                        started_date: new Date().toISOString(),
-                        last_updated: new Date().toISOString()
-                    };
-                    
-                    await window.dataSdk.create(newProgress);
-                }
-                
-                showSaveIndicator();
-            } catch (error) {
-                console.error("Error saving study progress:", error);
-            }
-        }
-
-        function loadStudyProgress() {
-            const progressRecord = gameData.find(item => item.type === 'study_progress');
-            if (progressRecord) {
-                currentWeek = progressRecord.current_week || 1;
-                currentDay = progressRecord.current_day || 1;
-            }
+        function saveStudyProgress() {
+            const progressData = {
+                currentWeek: currentWeek,
+                currentDay: currentDay,
+                lastUpdated: new Date().toISOString()
+            };
+            
+            saveToLocalStorage(STORAGE_KEYS.STUDY_PROGRESS, progressData);
         }
 
         // Listening functions
@@ -2481,7 +2412,7 @@
             });
         }
 
-        async function checkListeningAnswer(selectedAnswer, button) {
+        function checkListeningAnswer(selectedAnswer, button) {
             listeningTotal++;
             const isCorrect = selectedAnswer === currentListeningWord.russian;
             
@@ -2503,7 +2434,7 @@
             }
 
             // Save progress
-            await saveWordProgress(currentListeningWord.english, isCorrect);
+            saveWordProgress(currentListeningWord.english, isCorrect);
             
             // Disable all buttons
             const buttons = document.querySelectorAll('#listening-options .quiz-option');
@@ -2542,7 +2473,7 @@
             window.speechSynthesis.speak(utterance);
         }
 
-        async function startRecording() {
+        function startRecording() {
             if (isRecording) return;
             
             const recordBtn = document.getElementById('record-btn');
@@ -2554,7 +2485,7 @@
                 recordingStatus.style.display = 'block';
                 
                 // Simulate recording for 3 seconds
-                setTimeout(async () => {
+                setTimeout(() => {
                     isRecording = false;
                     recordBtn.textContent = '🎤 Записать произношение';
                     recordingStatus.style.display = 'none';
@@ -2563,7 +2494,7 @@
                     document.getElementById('speaking-score').textContent = `Слов произнесено: ${speakingCount}`;
                     
                     // Save progress
-                    await saveWordProgress(currentSpeakingWord.english, true);
+                    saveWordProgress(currentSpeakingWord.english, true);
                     
                     showMessage('✅ Запись завершена! Отличная работа!');
                 }, 3000);
@@ -2580,11 +2511,24 @@
             loadRandomSpeakingWord();
         }
 
+        function nextListeningWord() {
+            const allWords = getAllWords();
+            currentListeningWord = allWords[Math.floor(Math.random() * allWords.length)];
+            
+            document.getElementById('listening-emoji').textContent = currentListeningWord.emoji;
+            document.getElementById('play-listening-btn').style.display = 'block';
+            document.getElementById('repeat-listening-btn').style.display = 'none';
+            document.getElementById('listening-options').style.display = 'none';
+            document.getElementById('next-listening-btn').style.display = 'none';
+            
+            generateListeningOptions();
+        }
+
         // Initialize app when page loads
         document.addEventListener('DOMContentLoaded', () => {
             initializeApp();
             loadRandomSpeakingWord();
         });
     </script>
- <script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'99e96ac5521d9a64',t:'MTc2MzE1MzgwMy4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+ <script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'99ee556a300c6674',t:'MTc2MzIwNTM1Ny4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
